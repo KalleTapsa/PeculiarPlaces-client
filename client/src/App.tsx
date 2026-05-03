@@ -15,7 +15,7 @@ export default function App() {
     try {
       setPlaces(await fetchPlaces());
     } catch {
-      setError('Could not load places from API. Is the Flask server running?');
+      setError('Could not load places from API.');
     }
   }, []);
 
@@ -58,7 +58,7 @@ export default function App() {
         background: '#1a1a2e', color: 'white',
         padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
       }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>Peculiar Places</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>CoolRocks</h1>
 
         {error && (
           <span style={{ fontSize: 13, color: '#ff6b6b', marginLeft: 8 }}>{error}</span>
