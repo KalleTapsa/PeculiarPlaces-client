@@ -16,6 +16,7 @@ export interface Place {
   latitude: number;
   longitude: number;
   trust_score: number;
+  user_id?: number;
 }
 
 export interface Review {
@@ -23,6 +24,7 @@ export interface Review {
   rating: number;
   text?: string;
   timestamp: string;
+  user_id?: number;
 }
 
 export interface PlaceImage {
@@ -49,6 +51,15 @@ export function storeKey(key: string) {
 
 export function clearKey() {
   localStorage.removeItem('api_key');
+}
+
+export function getStoredUserId(): number | null {
+  const v = localStorage.getItem('user_id');
+  return v !== null ? Number(v) : null;
+}
+
+export function storeUserId(id: number) {
+  localStorage.setItem('user_id', String(id));
 }
 
 function authHeaders(key: string): HeadersInit {
@@ -86,7 +97,7 @@ export async function deleteUser(userId: number, key: string): Promise<void> {
 // --- Places ---
 
 export async function fetchPlaces(): Promise<Place[]> {
-  const res = await fetch(`${BASE}/places/`);
+  const res = await fetch(`${BASE}/places/?application=coolrocks`);
   await checkOk(res);
   return res.json();
 }
@@ -104,7 +115,7 @@ export async function createPlace(
   const res = await fetch(`${BASE}/places/`, {
     method: 'POST',
     headers: authHeaders(key),
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, application: 'coolrocks' }),
   });
   await checkOk(res);
   return res.json();

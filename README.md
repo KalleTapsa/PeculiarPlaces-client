@@ -1,6 +1,11 @@
 # CoolRocks
 Client for the PeculiarPlaces API
 
+## Requirements
+
+- [Node.js](https://nodejs.org/) 20+ (for local development)
+- [Docker](https://www.docker.com/) (for containerised builds)
+
 ## External Libraries
 
 | Library | Version | Purpose |

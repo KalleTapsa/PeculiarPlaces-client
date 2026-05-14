@@ -10,12 +10,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 let seq = 200;
 const nextId = () => ++seq;
 
+// Mock user — registration always returns this same ID + key so localStorage stays consistent
+const MOCK_USER_ID = 1;
+const MOCK_API_KEY = 'mock-key-abc123';
+
+function userIdFromReq(req: IncomingMessage): number {
+  const auth = (req.headers['authorization'] ?? '') as string;
+  return auth.includes(MOCK_API_KEY) ? MOCK_USER_ID : 0;
+}
+
+// user_id 1 = the mock registered user; user_id 2 = someone else (no edit/delete for those)
 const places: any[] = [
-  { id: 1, name: 'Mystery Rock Formation', description: 'A strange circular arrangement of rocks found deep in the forest. Locals have no explanation for it.', category: 'Nature', city: 'Tampere', latitude: 61.4978, longitude: 23.7610, trust_score: 4.2 },
-  { id: 2, name: 'Abandoned Soviet Bunker', description: 'Cold war era bunker, partially collapsed but still explorable. Graffiti covers every wall.', category: 'History', city: 'Turku', latitude: 60.4518, longitude: 22.2666, trust_score: 3.8 },
-  { id: 3, name: 'Underground Lake', description: 'A hidden lake inside a limestone cave system. Completely silent except for dripping water.', category: 'Nature', city: 'Rovaniemi', latitude: 66.5039, longitude: 25.7294, trust_score: 4.7 },
-  { id: 4, name: 'Rusting Ship Graveyard', description: 'Five old fishing vessels slowly sinking into the bog at the edge of the treeline.', category: 'Ruins', city: 'Helsinki', latitude: 60.1699, longitude: 24.9384, trust_score: 4.1 },
-  { id: 5, name: 'Giant Mushroom Ring', description: 'A 30-metre fairy ring that reappears every autumn. Scientists have studied it since 1987.', category: 'Nature', city: 'Oulu', latitude: 65.0121, longitude: 25.4651, trust_score: 3.5 },
+
 ];
 
 const reviews: Record<number, any[]> = {
@@ -98,7 +104,7 @@ async function mockHandler(req: IncomingMessage, res: ServerResponse): Promise<b
 
   // POST /api/users/
   if (method === 'POST' && path === '/api/users/') {
-    send(res, 201, { id: nextId(), api_key: 'mock-key-abc123' });
+    send(res, 201, { id: MOCK_USER_ID, api_key: MOCK_API_KEY });
     return true;
   }
 
@@ -111,7 +117,7 @@ async function mockHandler(req: IncomingMessage, res: ServerResponse): Promise<b
   // POST /api/places/
   if (method === 'POST' && path === '/api/places/') {
     const body = await readBody(req);
-    const place = { id: nextId(), trust_score: 0, city: null, ...body };
+    const place = { id: nextId(), trust_score: 0, city: null, user_id: userIdFromReq(req), ...body };
     places.push(place);
     reviews[place.id] = [];
     images[place.id] = [];

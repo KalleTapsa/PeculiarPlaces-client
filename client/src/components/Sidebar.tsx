@@ -2,30 +2,44 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Place, Review, PlaceImage,
   fetchPlace, fetchReviews, createReview, fetchImages, uploadImage, createPlace,
+  updatePlace, deletePlace,
 } from '../api';
 
 interface Props {
   place: Place | null;
   pendingCoords: [number, number] | null;
   apiKey: string | null;
+  userId: number | null;
+  noPlaces: boolean;
   onPlaceAdded: (place: Place) => void;
+  onPlaceUpdated: (place: Place) => void;
+  onPlaceDeleted: (placeId: number) => void;
   onCancelAdd: () => void;
   onClose: () => void;
 }
 
-export default function Sidebar({ place, pendingCoords, apiKey, onPlaceAdded, onCancelAdd, onClose }: Props) {
+export default function Sidebar({ place, pendingCoords, apiKey, userId, noPlaces, onPlaceAdded, onPlaceUpdated, onPlaceDeleted, onCancelAdd, onClose }: Props) {
   if (pendingCoords) {
     return <AddPlaceForm coords={pendingCoords} apiKey={apiKey} onPlaceAdded={onPlaceAdded} onCancel={onCancelAdd} />;
   }
   if (place) {
-    return <PlaceDetail place={place} apiKey={apiKey} onClose={onClose} />;
+    return <PlaceDetail place={place} apiKey={apiKey} userId={userId} onPlaceUpdated={onPlaceUpdated} onPlaceDeleted={onPlaceDeleted} onClose={onClose} />;
   }
   return (
     <aside style={sidebarBase}>
       <div style={{ color: '#aaa', fontSize: 14, textAlign: 'center', padding: 24 }}>
         <div style={{ fontSize: 32, marginBottom: 12 }}>📍</div>
-        <p>Click a marker to see details.</p>
-        {apiKey && <p style={{ marginTop: 8 }}>Use <strong>+ Add Place</strong> to pin something new.</p>}
+        {noPlaces ? (
+          <>
+            <p>No places found yet.</p>
+            {apiKey && <p style={{ marginTop: 8 }}>Be the first — use <strong>+ Add Place</strong> to pin one.</p>}
+          </>
+        ) : (
+          <>
+            <p>Click a marker to see details.</p>
+            {apiKey && <p style={{ marginTop: 8 }}>Use <strong>+ Add Place</strong> to pin something new.</p>}
+          </>
+        )}
       </div>
     </aside>
   );
@@ -35,7 +49,14 @@ export default function Sidebar({ place, pendingCoords, apiKey, onPlaceAdded, on
 
 type Tab = 'details' | 'images' | 'reviews';
 
-function PlaceDetail({ place, apiKey, onClose }: { place: Place; apiKey: string | null; onClose: () => void }) {
+function PlaceDetail({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted, onClose }: {
+  place: Place;
+  apiKey: string | null;
+  userId: number | null;
+  onPlaceUpdated: (place: Place) => void;
+  onPlaceDeleted: (placeId: number) => void;
+  onClose: () => void;
+}) {
   const [tab, setTab] = useState<Tab>('details');
   const [fullPlace, setFullPlace] = useState<Place | null>(null);
   const [loadingPlace, setLoadingPlace] = useState(true);
@@ -114,7 +135,13 @@ function PlaceDetail({ place, apiKey, onClose }: { place: Place; apiKey: string 
         {loadingPlace && tab === 'details' ? (
           <p style={hint}>Loading...</p>
         ) : tab === 'details' ? (
-          <DetailsTab place={p} />
+          <DetailsTab
+            place={p}
+            apiKey={apiKey}
+            userId={userId}
+            onPlaceUpdated={(updated) => { setFullPlace(updated); onPlaceUpdated(updated); }}
+            onPlaceDeleted={onPlaceDeleted}
+          />
         ) : tab === 'images' ? (
           <ImagesTab
             placeId={place.id}
@@ -127,6 +154,7 @@ function PlaceDetail({ place, apiKey, onClose }: { place: Place; apiKey: string 
           <ReviewsTab
             placeId={place.id}
             apiKey={apiKey}
+            userId={userId}
             reviews={reviews}
             loading={loadingReviews}
             onReviewAdded={r => setReviews(prev => [r, ...(prev ?? [])])}
@@ -139,7 +167,91 @@ function PlaceDetail({ place, apiKey, onClose }: { place: Place; apiKey: string 
 
 // --- Details tab ---
 
-function DetailsTab({ place }: { place: Place }) {
+function DetailsTab({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted }: {
+  place: Place;
+  apiKey: string | null;
+  userId: number | null;
+  onPlaceUpdated: (place: Place) => void;
+  onPlaceDeleted: (placeId: number) => void;
+}) {
+  const [editMode, setEditMode] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [name, setName] = useState(place.name);
+  const [description, setDescription] = useState(place.description ?? '');
+  const [category, setCategory] = useState(place.category ?? '');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  useEffect(() => {
+    setEditMode(false);
+    setConfirmDelete(false);
+    setName(place.name);
+    setDescription(place.description ?? '');
+    setCategory(place.category ?? '');
+    setEditError('');
+  }, [place.id]);
+
+  const isOwner = apiKey !== null && userId !== null && place.user_id === userId;
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!apiKey) return;
+    setSaving(true);
+    setEditError('');
+    try {
+      const updated = await updatePlace(place.id, { name, description: description || undefined, category: category || undefined }, apiKey);
+      onPlaceUpdated(updated);
+      setEditMode(false);
+    } catch {
+      setEditError('Failed to save changes.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!apiKey) return;
+    setDeleting(true);
+    try {
+      await deletePlace(place.id, apiKey);
+      onPlaceDeleted(place.id);
+    } catch {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
+  if (editMode) {
+    return (
+      <div style={{ padding: 16 }}>
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label style={labelStyle}>
+            Name <span style={{ color: '#e94560' }}>*</span>
+            <input required value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            Description
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'none' }} />
+          </label>
+          <label style={labelStyle}>
+            Category
+            <input value={category} onChange={e => setCategory(e.target.value)} style={inputStyle} />
+          </label>
+          {editError && <span style={{ color: '#e94560', fontSize: 13 }}>{editError}</span>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="submit" disabled={saving || !name.trim()} style={{ ...actionBtn, flex: 1 }}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button type="button" onClick={() => { setEditMode(false); setEditError(''); }} style={{ flex: 1, padding: 8, background: '#eee', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 16 }}>
       {place.description ? (
@@ -153,6 +265,46 @@ function DetailsTab({ place }: { place: Place }) {
         {place.city && <MetaRow label="City" value={place.city} />}
         <MetaRow label="Coordinates" value={`${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`} />
       </div>
+      {isOwner && (
+        confirmDelete ? (
+          <div style={{ marginTop: 16, background: '#fff3f3', border: '1px solid #ffcccc', borderRadius: 8, padding: 14 }}>
+            <p style={{ fontSize: 13, color: '#333', margin: '0 0 12px' }}>
+              Delete <strong>{place.name}</strong>? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{ flex: 1, padding: 8, background: deleting ? '#ccc' : '#ff4d4d', color: 'white', border: 'none', borderRadius: 6, cursor: deleting ? 'default' : 'pointer', fontWeight: 600, fontSize: 13 }}
+              >
+                {deleting ? 'Deleting...' : 'Yes, delete'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+                style={{ flex: 1, padding: 8, background: '#eee', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button
+              onClick={() => { setName(place.name); setDescription(place.description ?? ''); setCategory(place.category ?? ''); setEditMode(true); }}
+              style={{ ...actionBtn, flex: 1 }}
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={{ flex: 1, padding: 8, background: '#ff4d4d', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+            >
+              Delete
+            </button>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -238,9 +390,10 @@ function ImagesTab({ placeId, apiKey, images, loading, onImageAdded }: {
 
 // --- Reviews tab ---
 
-function ReviewsTab({ placeId, apiKey, reviews, loading, onReviewAdded }: {
+function ReviewsTab({ placeId, apiKey, userId, reviews, loading, onReviewAdded }: {
   placeId: number;
   apiKey: string | null;
+  userId: number | null;
   reviews: Review[] | null;
   loading: boolean;
   onReviewAdded: (r: Review) => void;
@@ -248,16 +401,21 @@ function ReviewsTab({ placeId, apiKey, reviews, loading, onReviewAdded }: {
   const [rating, setRating] = useState(5);
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
+
+  const alreadyReviewed = hasReviewed ||
+    (userId !== null && reviews !== null && reviews.some(r => r.user_id === userId));
 
   async function submitReview(e: React.FormEvent) {
     e.preventDefault();
-    if (!apiKey) return;
+    if (!apiKey || alreadyReviewed) return;
     setSubmitting(true);
     try {
       const r = await createReview(placeId, { rating, text }, apiKey);
       onReviewAdded(r);
       setText('');
       setRating(5);
+      setHasReviewed(true);
     } catch {
       alert('Failed to submit review.');
     } finally {
@@ -291,7 +449,9 @@ function ReviewsTab({ placeId, apiKey, reviews, loading, onReviewAdded }: {
       </div>
 
       <div style={{ borderTop: '1px solid #eee', padding: 16, flexShrink: 0 }}>
-        {apiKey ? (
+        {apiKey && alreadyReviewed ? (
+          <p style={{ fontSize: 13, color: '#aaa', textAlign: 'center', margin: 0 }}>You have already reviewed this place</p>
+        ) : apiKey ? (
           <form onSubmit={submitReview} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <h4 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Leave a review</h4>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import PlaceMap from './components/PlaceMap';
 import Sidebar from './components/Sidebar';
-import { fetchPlaces, getStoredKey, storeKey, register, Place } from './api';
+import { fetchPlaces, getStoredKey, storeKey, getStoredUserId, storeUserId, register, Place } from './api';
 
 export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(getStoredKey());
+  const [userId, setUserId] = useState<number | null>(getStoredUserId());
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [addingMode, setAddingMode] = useState(false);
@@ -23,9 +24,11 @@ export default function App() {
 
   async function handleRegister() {
     try {
-      const { api_key } = await register();
+      const { id, api_key } = await register();
       storeKey(api_key);
+      storeUserId(id);
       setApiKey(api_key);
+      setUserId(id);
       setError(null);
       alert(`Your API key:\n\n${api_key}\n\nSave this somewhere — it won't be shown again.`);
     } catch {
@@ -44,6 +47,16 @@ export default function App() {
     setSelectedPlace(place);
     setPendingCoords(null);
     setAddingMode(false);
+  }
+
+  function handlePlaceUpdated(updated: Place) {
+    setPlaces(prev => prev.map(p => p.id === updated.id ? updated : p));
+    setSelectedPlace(updated);
+  }
+
+  function handlePlaceDeleted(placeId: number) {
+    setPlaces(prev => prev.filter(p => p.id !== placeId));
+    setSelectedPlace(null);
   }
 
   function cancelAdding() {
@@ -96,6 +109,7 @@ export default function App() {
         <PlaceMap
           places={places}
           addingMode={addingMode}
+          pendingCoords={pendingCoords}
           onMapClick={handleMapClick}
           onSelectPlace={(p) => { setSelectedPlace(p); setPendingCoords(null); setAddingMode(false); }}
         />
@@ -103,7 +117,11 @@ export default function App() {
           place={selectedPlace}
           pendingCoords={pendingCoords}
           apiKey={apiKey}
+          userId={userId}
+          noPlaces={places.length === 0}
           onPlaceAdded={handlePlaceAdded}
+          onPlaceUpdated={handlePlaceUpdated}
+          onPlaceDeleted={handlePlaceDeleted}
           onCancelAdd={cancelAdding}
           onClose={() => setSelectedPlace(null)}
         />
