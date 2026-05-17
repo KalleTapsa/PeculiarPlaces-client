@@ -1,7 +1,28 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
 import PlaceMap from './components/PlaceMap';
 import Sidebar from './components/Sidebar';
 import { fetchPlaces, getStoredKey, storeKey, getStoredUserId, storeUserId, register, Place } from './api';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, fontFamily: 'monospace' }}>
+          <h2 style={{ color: '#e94560' }}>Something went wrong</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#555' }}>
+            {(this.state.error as Error).message}
+          </pre>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 12, padding: '8px 16px', cursor: 'pointer' }}>
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(getStoredKey());
@@ -12,15 +33,11 @@ export default function App() {
   const [pendingCoords, setPendingCoords] = useState<[number, number] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadPlaces = useCallback(async () => {
-    try {
-      setPlaces(await fetchPlaces());
-    } catch {
-      setError('Could not load places from API.');
-    }
+  useEffect(() => {
+    fetchPlaces()
+      .then(setPlaces)
+      .catch(() => setError('Could not load places from API.'));
   }, []);
-
-  useEffect(() => { loadPlaces(); }, [loadPlaces]);
 
   async function handleRegister() {
     try {
@@ -105,6 +122,7 @@ export default function App() {
       </header>
 
       {/* Map + Sidebar */}
+      <ErrorBoundary>
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <PlaceMap
           places={places}
@@ -126,6 +144,7 @@ export default function App() {
           onClose={() => setSelectedPlace(null)}
         />
       </div>
+      </ErrorBoundary>
     </div>
   );
 }

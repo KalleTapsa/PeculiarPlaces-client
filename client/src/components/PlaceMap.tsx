@@ -76,13 +76,18 @@ export default function PlaceMap({ places, addingMode, pendingCoords, onMapClick
         onMapClick={onMapClick}
         onHoverCoords={setHoverCoords}
       />
-      {places.map(place => (
-        <Marker
-          key={place.id}
-          position={[place.latitude, place.longitude]}
-          eventHandlers={{ click: () => onSelectPlace(place) }}
-        />
-      ))}
+      {places.map(place => {
+        const lat = Number(place.latitude);
+        const lng = Number(place.longitude);
+        if (isNaN(lat) || isNaN(lng)) return null;
+        return (
+          <Marker
+            key={place.id}
+            position={[lat, lng]}
+            eventHandlers={{ click: () => onSelectPlace(place) }}
+          />
+        );
+      })}
       {/* Confirmed drop position — shown after clicking */}
       {pendingCoords && (
         <Marker position={pendingCoords} icon={pendingIcon} interactive={false} />

@@ -23,12 +23,12 @@ export default function Sidebar({ place, pendingCoords, apiKey, userId, noPlaces
     return <AddPlaceForm coords={pendingCoords} apiKey={apiKey} onPlaceAdded={onPlaceAdded} onCancel={onCancelAdd} />;
   }
   if (place) {
-    return <PlaceDetail place={place} apiKey={apiKey} userId={userId} onPlaceUpdated={onPlaceUpdated} onPlaceDeleted={onPlaceDeleted} onClose={onClose} />;
+    return <PlaceDetail key={place.id} place={place} apiKey={apiKey} userId={userId} onPlaceUpdated={onPlaceUpdated} onPlaceDeleted={onPlaceDeleted} onClose={onClose} />;
   }
   return (
     <aside style={sidebarBase}>
       <div style={{ color: '#aaa', fontSize: 14, textAlign: 'center', padding: 24 }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>📍</div>
+        <img src="https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png" alt="marker" style={{ width: 25, height: 41, marginBottom: 12 }} />
         {noPlaces ? (
           <>
             <p>No places found yet.</p>
@@ -63,46 +63,48 @@ function PlaceDetail({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted, on
 
   // Images state
   const [images, setImages] = useState<PlaceImage[] | null>(null);
-  const [loadingImages, setLoadingImages] = useState(false);
+  const fetchingImages = useRef(false);
 
   // Reviews state
   const [reviews, setReviews] = useState<Review[] | null>(null);
-  const [loadingReviews, setLoadingReviews] = useState(false);
+  const fetchingReviews = useRef(false);
 
-  // Fetch full place detail on mount
+  // Captures the place value at mount; stable for the lifetime of this instance
+  // because key={place.id} causes a full remount when the place changes.
+  const placeRef = useRef(place);
+
+  // Fetch full place detail on mount (key={place.id} on this component means
+  // it remounts on place change, so no synchronous state resets are needed)
   useEffect(() => {
-    setFullPlace(null);
-    setLoadingPlace(true);
-    setTab('details');
-    setImages(null);
-    setReviews(null);
+    let cancelled = false;
     fetchPlace(place.id)
-      .then(setFullPlace)
-      .catch(() => setFullPlace(place))
-      .finally(() => setLoadingPlace(false));
+      .then(data => { if (!cancelled) setFullPlace(data); })
+      .catch(() => { if (!cancelled) setFullPlace(placeRef.current); })
+      .finally(() => { if (!cancelled) setLoadingPlace(false); });
+    return () => { cancelled = true; };
   }, [place.id]);
 
   // Lazy-load images when that tab is first opened
   useEffect(() => {
-    if (tab === 'images' && images === null && !loadingImages) {
-      setLoadingImages(true);
+    if (tab === 'images' && images === null && !fetchingImages.current) {
+      fetchingImages.current = true;
       fetchImages(place.id)
         .then(setImages)
         .catch(() => setImages([]))
-        .finally(() => setLoadingImages(false));
+        .finally(() => { fetchingImages.current = false; });
     }
-  }, [tab, place.id]);
+  }, [tab, place.id, images]);
 
   // Lazy-load reviews when that tab is first opened
   useEffect(() => {
-    if (tab === 'reviews' && reviews === null && !loadingReviews) {
-      setLoadingReviews(true);
+    if (tab === 'reviews' && reviews === null && !fetchingReviews.current) {
+      fetchingReviews.current = true;
       fetchReviews(place.id)
         .then(setReviews)
         .catch(() => setReviews([]))
-        .finally(() => setLoadingReviews(false));
+        .finally(() => { fetchingReviews.current = false; });
     }
-  }, [tab, place.id]);
+  }, [tab, place.id, reviews]);
 
   const p = fullPlace ?? place;
 
@@ -147,8 +149,10 @@ function PlaceDetail({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted, on
             placeId={place.id}
             apiKey={apiKey}
             images={images}
-            loading={loadingImages}
-            onImageAdded={img => setImages(prev => [...(prev ?? []), img])}
+            loading={images === null}
+            onImageAdded={async () => {
+              try { setImages(await fetchImages(place.id)); } catch { /* keep existing */ }
+            }}
           />
         ) : (
           <ReviewsTab
@@ -156,7 +160,7 @@ function PlaceDetail({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted, on
             apiKey={apiKey}
             userId={userId}
             reviews={reviews}
-            loading={loadingReviews}
+            loading={reviews === null}
             onReviewAdded={r => setReviews(prev => [r, ...(prev ?? [])])}
           />
         )}
@@ -183,15 +187,6 @@ function DetailsTab({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted }: {
   const [deleting, setDeleting] = useState(false);
   const [editError, setEditError] = useState('');
 
-  useEffect(() => {
-    setEditMode(false);
-    setConfirmDelete(false);
-    setName(place.name);
-    setDescription(place.description ?? '');
-    setCategory(place.category ?? '');
-    setEditError('');
-  }, [place.id]);
-
   const isOwner = apiKey !== null && userId !== null && place.user_id === userId;
 
   async function handleSave(e: React.FormEvent) {
@@ -200,8 +195,9 @@ function DetailsTab({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted }: {
     setSaving(true);
     setEditError('');
     try {
-      const updated = await updatePlace(place.id, { name, description: description || undefined, category: category || undefined }, apiKey);
-      onPlaceUpdated(updated);
+      await updatePlace(place.id, { name, description: description || undefined, category: category || undefined }, apiKey);
+      const refreshed = await fetchPlace(place.id);
+      onPlaceUpdated(refreshed);
       setEditMode(false);
     } catch {
       setEditError('Failed to save changes.');
@@ -263,7 +259,7 @@ function DetailsTab({ place, apiKey, userId, onPlaceUpdated, onPlaceDeleted }: {
         <MetaRow label="Trust score" value={`${place.trust_score?.toFixed(1) ?? '—'} / 5`} />
         {place.category && <MetaRow label="Category" value={place.category} />}
         {place.city && <MetaRow label="City" value={place.city} />}
-        <MetaRow label="Coordinates" value={`${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`} />
+        <MetaRow label="Coordinates" value={`${Number(place.latitude).toFixed(5)}, ${Number(place.longitude).toFixed(5)}`} />
       </div>
       {isOwner && (
         confirmDelete ? (
@@ -325,7 +321,7 @@ function ImagesTab({ placeId, apiKey, images, loading, onImageAdded }: {
   apiKey: string | null;
   images: PlaceImage[] | null;
   loading: boolean;
-  onImageAdded: (img: PlaceImage) => void;
+  onImageAdded: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -337,8 +333,8 @@ function ImagesTab({ placeId, apiKey, images, loading, onImageAdded }: {
     setUploading(true);
     setUploadError('');
     try {
-      const img = await uploadImage(placeId, file, apiKey);
-      onImageAdded(img);
+      await uploadImage(placeId, file, apiKey);
+      onImageAdded();
     } catch {
       setUploadError('Upload failed. Try again.');
     } finally {
@@ -376,7 +372,7 @@ function ImagesTab({ placeId, apiKey, images, loading, onImageAdded }: {
           {images.map(img => (
             <img
               key={img.id}
-              src={img.url}
+              src={img.image_url}
               alt=""
               style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, background: '#f0f0f0' }}
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -411,7 +407,13 @@ function ReviewsTab({ placeId, apiKey, userId, reviews, loading, onReviewAdded }
     if (!apiKey || alreadyReviewed) return;
     setSubmitting(true);
     try {
-      const r = await createReview(placeId, { rating, text }, apiKey);
+      const raw = await createReview(placeId, { rating, text }, apiKey);
+      const r: Review = {
+        ...raw,
+        rating: Number(raw.rating ?? rating),
+        text: raw.text ?? text,
+        timestamp: raw.timestamp ?? new Date().toISOString(),
+      };
       onReviewAdded(r);
       setText('');
       setRating(5);
@@ -424,7 +426,7 @@ function ReviewsTab({ placeId, apiKey, userId, reviews, loading, onReviewAdded }
   }
 
   const avgRating = reviews?.length
-    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+    ? (reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length).toFixed(1)
     : null;
 
   return (
@@ -439,7 +441,7 @@ function ReviewsTab({ placeId, apiKey, userId, reviews, loading, onReviewAdded }
         {!loading && reviews?.length === 0 && <p style={hint}>No reviews yet.</p>}
         {reviews?.map(r => (
           <div key={r.id} style={{ padding: '10px 12px', marginBottom: 8, background: '#f8f8f8', borderRadius: 6 }}>
-            <div style={{ fontSize: 14 }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</div>
+            <div style={{ fontSize: 14 }}>{'★'.repeat(Number(r.rating))}{'☆'.repeat(5 - Number(r.rating))}</div>
             {r.text && <p style={{ fontSize: 13, marginTop: 4, color: '#444' }}>{r.text}</p>}
             <div style={{ fontSize: 11, color: '#bbb', marginTop: 4 }}>
               {new Date(r.timestamp).toLocaleDateString()}
@@ -499,10 +501,17 @@ function AddPlaceForm({ coords, apiKey, onPlaceAdded, onCancel }: {
     setSaving(true);
     setError('');
     try {
-      const place = await createPlace(
+      const raw = await createPlace(
         { name, description: description || undefined, category: category || undefined, latitude: coords[0], longitude: coords[1] },
         apiKey
       );
+      // Guarantee numeric coords in case the API returns strings or omits them
+      const place: Place = {
+        ...raw,
+        trust_score: raw.trust_score ?? 0,
+        latitude: Number(raw.latitude ?? coords[0]),
+        longitude: Number(raw.longitude ?? coords[1]),
+      };
       onPlaceAdded(place);
     } catch {
       setError('Failed to save. Try again.');
